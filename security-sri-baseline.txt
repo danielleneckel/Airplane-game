@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.1, pytest-9.2.0, pluggy-1.7.0 -- /Users/danielleneckeldesouza/Airplane game/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/danielleneckeldesouza/Airplane game
+collecting ... collected 1 item
+
+security_tests/test_remote_runtime.py::test_remote_pythons_runtime_has_integrity_check FAILED [100%]
+
+=================================== FAILURES ===================================
+_______________ test_remote_pythons_runtime_has_integrity_check ________________
+security_tests/test_remote_runtime.py:35: in test_remote_pythons_runtime_has_integrity_check
+    assert f'integrity="{VERIFIED_INTEGRITY}"' in tag
+E   assert 'integrity="sha384-r9lBo2lFgr+vWZJnNU/iSR1gma5wmbPQS1gs+pGZ/ZMd2KcaKYZG/2bRGEBHD5z4"' in '<script src="https://pygame-web.github.io/cdn/0.9.3/pythons.js" type=module id="site" data-python="python3.12" data-LINES=42 data-COLUMNS=132 data-os="vtx,snd,gui" async defer>'
+=========================== short test summary info ============================
+FAILED security_tests/test_remote_runtime.py::test_remote_pythons_runtime_has_integrity_check
+============================== 1 failed in 0.03s ===============================
+EXIT:1

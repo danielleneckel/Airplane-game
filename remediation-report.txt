@@ -1,0 +1,61 @@
+Airplane Game remediation report
+Date: 2026-11-19
+
+Only one confirmed security finding was recorded in security-review-findings.txt: SR-01.
+The other review items were false positives, hardening notes, or not applicable.
+This report covers that finding, the later win/restart change, and the tests that were run again on this date.
+
+
+1. Finding
+SR-01. build/web/index.html loaded the Pygbag runtime from pygame-web.github.io without an integrity check.
+
+2. Original problem
+Line 1 was a script tag whose src was https://pygame-web.github.io/cdn/0.9.3/pythons.js.
+It had no integrity attribute. The browser ran whatever file that address returned.
+security-sri-baseline.txt records the regression test failing on that original tag.
+
+3. Fix implemented
+The same script tag now includes the verified hash and crossorigin="anonymous".
+The URL was not changed. main.py, player.py, and settings.py were not changed for this fix.
+Verified on line 1 of build/web/index.html:
+integrity="sha384-r9lBo2lFgr+vWZJnNU/iSR1gma5wmbPQS1gs+pGZ/ZMd2KcaKYZG/2bRGEBHD5z4"
+
+4. Testing performed
+security_tests/test_remote_runtime.py checks that this exact hash and crossorigin="anonymous" are on that tag.
+The full security_tests suite was run again on 2026-11-19 with pytest 9.2.0.
+Earlier, after the attribute was added, the page was reloaded at http://127.0.0.1:8001/. The browser accepted the hash and continued to main.js and main.wasm. That browser check was not repeated for this report.
+
+5. Verification result
+The suite passed: 27 tests, 0 failed.
+The SRI test now passes. The baseline file still shows that it failed before the attribute was added.
+The fix covers pythons.js only. Line 288 still loads browserfs.min.js and line 358 still loads empty.html with no integrity attribute. Files that pythons.js loads afterward, including main.js and main.wasm, are also not covered by this hash.
+
+
+Win and restart (gameplay change, not a security finding)
+
+1. Finding
+After Level 3 the game stopped. This was not one of the confirmed security findings.
+
+2. Original problem
+Reaching the goal on the last level set won and left the game there.
+
+3. Fix implemented
+main.py lines 217-229 add WIN_HOLD_FRAMES (2 seconds) and new_game().
+Lines 297-305 show the win, wait, then start Level 1 again with STARTING_LIVES (3).
+Line 336 draws "You Win!".
+Lines 268-273 still restart only the current level when R is pressed after all lives are lost.
+The packed browser archives were updated with this main.py. index.html was not rebuilt.
+
+4. Testing performed
+A desktop check placed the airplane on the Level 3 goal, ran the 120-frame hold, and confirmed the result was Level 1, 3 lives, and no goal overlap. The levels could advance again. The R branch still calls build_level(level_index) and does not call new_game.
+The same pytest run above includes the security tests that read this file.
+
+5. Verification result
+That desktop check printed "win restart ok". The message width was 154 pixels, which stays on the 960-pixel screen.
+No full on-screen playthrough of all three levels was completed for this report.
+
+
+Automated tests
+security_tests/ contains the input, game-state, error, browser, configuration, and SRI tests.
+Command: SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python -m pytest security_tests -q
+Result on 2026-11-19: 27 passed in 0.10s.

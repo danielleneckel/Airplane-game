@@ -1,0 +1,235 @@
+Airplane Game security review
+Date: 2026-11-19
+Scope: the Python game (main.py, player.py, settings.py), requirements.txt, pygbag.ini, and the generated browser page in build/web/.
+Method: manual review of those files, a Bandit 1.9.4 scan of the three Python files, a 26-test pytest suite in security_tests/, and PyPI plus OSV checks of pygame 2.6.1, pygbag 0.9.3, and pygame-ce 2.5.7.
+No game files were changed for this report.
+
+How to read the statuses
+- Confirmed: the code does the unsafe thing, and a realistic attack exists.
+- Potential: the unsafe behavior appears only if the project is used differently from the documented local setup.
+- False positive: a tool or a suspicious-looking line does not create a security problem in this game.
+- Hardening: a safer configuration is possible. It is not counted as a vulnerability.
+
+The same root cause is one finding even when a tool reports it more than once.
+
+
+SR-01  Remote Python runtime is loaded without an integrity check
+Status: Confirmed
+Severity: Medium
+Location: build/web/index.html line 1
+Also: build/web/index.html line 156 (the same CDN address in the page config)
+      build/web/index.html line 288 (browserfs.min.js from the same site)
+      build/web/index.html line 358 (empty.html from the same site)
+
+What is wrong:
+Line 1 is a normal script tag, not a script created by the game:
+
+    src="https://pygame-web.github.io/cdn/0.9.3/pythons.js"
+
+The tag has no integrity attribute. The browser downloads that file and runs it. The file then creates more script tags and calls import() for the Python WebAssembly interpreter, its data file, and the Pygame package. Those later loads also have no integrity check. The word "integrity" does not appear in the downloaded pythons.js (69,205 bytes on 2026-11-19).
+
+The address contains the version 0.9.3, but the bytes are not frozen. The response was served by GitHub Pages, last modified on 2026-03-17, with cache-control max-age=600. The same address can be replaced later.
+
+Realistic attack:
+Someone who can change files on pygame-web.github.io, or who controls the GitHub account that publishes that site, replaces pythons.js. The next time this page loads, the browser runs the replacement in the game tab. That script can change what the page shows, read keys pressed in the game, and load more code. This game has no accounts and no saved scores, so the effect stays in that browser tab. It does not reach the rest of the computer.
+
+How to verify:
+Open build/web/index.html and confirm line 1 has src and no integrity. In the browser Network panel, confirm pythons.js, then main.js and main.wasm, come from pygame-web.github.io. curl -sI on the pythons.js URL shows server: GitHub.com and no checksum the page requires.
+
+Recommended fix:
+Add integrity and crossorigin="anonymous" to the line 1 script tag, using a SHA-384 hash of the current file. That checks only pythons.js. It does not check the files that script loads afterward. Copying only pythons.js onto the local server can break the game: if the page is opened as localhost, the loader sets its CDN address from the script's own folder, and the interpreter files are not in build/web/. A full fix is to vendor every runtime file and serve them from the same place as index.html, then retest the game. Pygbag overwrites index.html on the next build, so the change has to be reapplied.
+
+
+SR-02  Content Security Policy cannot block the remote runtime
+Status: Hardening recommendation
+Severity: Low
+Location: build/web/index.html line 184
+
+What this is:
+The page has a Content Security Policy. It must allow inline scripts, eval, WebAssembly, and https://pygame-web.github.io, or the Pygbag 0.9.3 game does not start. A policy with those exceptions does not stop the attack in SR-01. A stricter policy would stop the game from loading.
+
+This is not a separate vulnerability. It is a limit of the current loader.
+
+How to verify:
+Reload the game with the policy in place and confirm it still reaches the canvas. Remove https://pygame-web.github.io from script-src and confirm the page stays on the loading message. Put the policy back afterward.
+
+Recommended fix:
+Keep this policy while the runtime is loaded from that site. Tighten it only after the runtime is served from the same origin as index.html.
+
+
+SR-03  Local file server identifies Python in its response header
+Status: Potential
+Severity: Low
+Location: README.md lines 70-71, the documented command
+    python -m http.server 8001 --bind 127.0.0.1 --directory build/web
+Observed on 2026-11-19 from that running server:
+    Server: SimpleHTTP/0.6 Python/3.12.1
+
+What this is:
+Python's http.server sends its product name and the Python version on every response. A missing file returns "File not found." and does not include a folder path from this computer. The home page is index.html, so the game folder is not printed as a file list.
+
+Realistic attack:
+None, while the command keeps --bind 127.0.0.1. Only this computer can open the port. The finding becomes real if that flag is removed and the same server is reachable from a network. http.server has no login and is not a production web server. A remote visitor would then learn the Python version and could request any file inside build/web, including the packed game source. That source contains no secrets.
+
+How to verify:
+curl -sI http://127.0.0.1:8001/ and read the Server line. Open http://127.0.0.1:8001/does-not-exist and confirm the body says "File not found" without a disk path.
+
+Recommended fix:
+Keep --bind 127.0.0.1 for local play. Do not put this command on a public network. No code change is required for the assignment's local setup.
+
+
+SR-04  requirements.txt does not pin exact versions
+Status: Hardening recommendation
+Severity: Low
+Location: requirements.txt lines 1-2
+    pygame>=2.5.2
+    pygbag>=0.9.2
+Installed in this virtual environment: pygame 2.6.1 and pygbag 0.9.3.
+PyPI listed those same numbers as the current releases on 2026-11-19.
+OSV returned no advisories for pygame, pygbag, or pygame-ce.
+
+What this is:
+A later install could receive a newer release than the one this project was tested with. That is not a known vulnerability. The browser build uses pygame-ce 2.5.7 because Pygbag 0.9.3's package index maps the name pygame to that wheel. PyPI's newest pygame-ce release is 2.5.8. OSV has no advisory for 2.5.7. Being one release behind, with no advisory, is not a confirmed vulnerability. Replacing that wheel by hand can break the Pygbag 0.9.3 browser build.
+
+How to verify:
+pip freeze
+Then open the PyPI pages for pygame, pygbag, and pygame-ce, and search those names on https://osv.dev/ with the PyPI ecosystem.
+
+Recommended fix:
+Optionally pin pygame==2.6.1 and pygbag==0.9.3. Do not upgrade or replace pygame-ce unless a future advisory names the version this build uses.
+
+
+SR-05  Generated page prints build details
+Status: Hardening recommendation
+Severity: Informational
+Location: build/web/index.html lines 3-14
+Also: build/web/index.html line 155, gui_debug : 2
+      build/web/index.html lines 322 and 407-413 (hidden diagnostic panel and debug())
+
+What this is:
+The loader prints Pygbag 0.9.3, Python 3.12, the CDN address, the screen size, and the folder name airplane.game. Anyone can read that with View Source. The diagnostic panel is marked hidden. debug() is not called when the page loads. The text does not include a password, a key, or a path on this Mac.
+
+This is leftover template information, not an exposed secret.
+
+How to verify:
+View Source on http://127.0.0.1:8001/. Search for "Pygbag Version" and "function debug()". Confirm the on-screen game does not show the AIO debug buttons.
+
+Recommended fix:
+No change is required. A rebuild can omit the print block if a future template is customized. Do not turn debug() on.
+
+
+SR-06  Pygbag template contains unused browser sinks
+Status: False positive
+Severity: Not a vulnerability in this game
+Location: build/web/index.html lines 366-368 (hidden file input)
+      build/web/index.html lines 416-433 (innerHTML helper, fetch helper, frame helper)
+      build/web/index.html lines 40-44 (zip extract without a filter, only on an itch.io host)
+
+What was checked:
+info_inline assigns text to innerHTML. info_online fetches a URL and passes the body to that function. frame_online can change the hidden frame's address. The hidden file input accepts images. The game's Python files never call these functions. The frame's parent box is hidden, its allow list is only "autoplay; fullscreen", and its src is the CDN's empty.html.
+
+The itch.io branch unpacks airplane.game.apk with extractall and no filter. The normal path, used on this computer, opens airplane.game.tar.gz with filter='tar', which blocks archive entries that try to leave the destination. Both destinations are /data/data/airplane.game inside the browser's virtual filesystem (line 35), not a folder on this Mac. The archive names are fixed. The player cannot choose them.
+
+Realistic attack:
+None was found. A cross-site scripting bug would require the game to call info_inline or info_online with untrusted text. It does not. A path-traversal bug would require a malicious archive to be extracted onto the computer's disk. This extraction stays in the browser filesystem, and the archive is the game package itself.
+
+How to verify:
+Search main.py, player.py, and settings.py for info_online, info_inline, frame_online, and innerHTML. There are no matches. Search index.html for filter='tar' on the tar path.
+
+Recommended fix:
+No game change. If index.html is edited by hand, do not start calling info_online with data from outside the program. The next Pygbag build replaces this file.
+
+
+SR-07  Bandit B311 warnings on the raindrops
+Status: False positive
+Severity: Not a vulnerability
+Location: main.py line 119 (three calls) and main.py line 173 (one call)
+Report: bandit-report.txt
+Tool result: 4 low, 0 medium, 0 high. These four tool rows are one root cause.
+
+What Bandit said:
+random.randrange and random.randint are not suitable for passwords or other secrets.
+
+What the code does:
+Those calls pick the x position, y position, and speed of the level-3 rain. Predicting a raindrop does not reveal a secret and does not affect another player.
+
+How to verify:
+Read make_rain and update_rain. Run Bandit again on main.py, player.py, and settings.py. The only results are these four B311 rows.
+
+Recommended fix:
+Do not replace the rain generator. Do not treat this warning as a vulnerability.
+
+
+Areas reviewed where no vulnerability was identified
+
+1. Input validation
+The game does not read a form, a query string, or posted JSON. The level starts at main.py line 243 (level_index = 0). Lives start at line 246 from STARTING_LIVES, which is 3 in settings.py line 34. Keyboard input is compared with Space, R, the arrow keys, and A or D. Bad values passed directly to build_level raise a normal TypeError or IndexError and do not include a home-folder path. This was covered by security_tests/.
+
+2. XSS and browser output
+Level names and the life count are drawn with Pygame font.render in main.py lines 302-318. They are pictures on the canvas, not HTML. The level names do not appear in index.html. There is no document.write and no eval in the generated page. The unused innerHTML helper is SR-06, not a confirmed XSS bug.
+
+3. Injection
+There is no SQL, no shell command, and no template filled with player text. The life label at main.py line 305 is an internal number drawn as text. It is not sent to an interpreter.
+
+4. File and path security
+The Python game does not open files. The browser loader uses the fixed names airplane.game, airplane.game.apk, and airplane.game.tar.gz. See SR-06 for the archive unpacking.
+
+5. Secrets and configuration
+No passwords, API keys, tokens, or private keys were found in the game files, requirements.txt, pygbag.ini, or build/web/index.html. pygbag.ini only lists folders to skip while packing.
+
+6. Sessions and cookies
+Not applicable. The game does not set a cookie, use localStorage, or use sessionStorage. Lives and position disappear when the tab closes. The word cookiecutter in index.html is a template name, not an HTTP cookie. Secure, HttpOnly, and SameSite do not apply.
+
+7. Debugging and production configuration
+There is no debug flag in the Python game. The browser debug panel is hidden and is not started automatically (SR-05). The documented server is a local file server, which is appropriate for this assignment and is not a public host (SR-03).
+
+8. Dependency security
+OSV had no advisories for the installed pygame and pygbag versions, or for the browser pygame-ce wheel, on 2026-11-19. Both pip packages were the current PyPI releases. Pygbag's optional sim packages are not installed. The unpinned ranges are SR-04, a hardening note, not a known vulnerable package.
+
+9. Authorization and trust boundaries
+Not applicable as an authorization bug. There is no login, role, or protected action. There is no server that accepts a score or a level. The local http.server only returns files. Trust in pygame-web.github.io is the supply-chain issue in SR-01, not an authorization check that is missing.
+
+10. Automated security findings
+Bandit 1.9.4 produced only SR-07. The pytest suite in security_tests/ passed 26 tests on 2026-11-19. Results are in security-test-results.txt.
+
+11. Game state manipulation
+A person can change level_index or lives in their own browser's developer tools. That changes only that screen. There is no score variable in main.py, player.py, or settings.py. The level increases by one only after the airplane overlaps the goal (main.py lines 278-285). Forcing level 3 locally does not record a completed game anywhere else, because nothing stores it. This is normal for a game that runs entirely on the player's computer. It is not a vulnerability.
+
+12. Error handling
+The game does not have a custom error page. A crash would show Python's normal traceback in the terminal of the person who started the game. No crash was found. Exceptions raised by bad test values did not include a password or this computer's home folder. The 404 page from http.server does not include a disk path.
+
+13. Remote scripts and third-party resources
+Covered by SR-01. The service-worker registration at index.html lines 280-285 is inside a comment and does not run. No Subresource Integrity hashes are present.
+
+14. Security weaknesses in the browser build
+The confirmed issue is SR-01. The page does not request the camera, microphone, or location (index.html line 357). WebAssembly runs in the browser sandbox. Using a canvas and the keyboard is normal for this packaging method and is not, by itself, a vulnerability.
+
+
+Summary
+
+Confirmed vulnerabilities by severity
+- Critical: 0
+- High: 0
+- Medium: 1 (SR-01)
+- Low: 0
+
+Potential issues requiring further verification
+- 1 (SR-03). It matters only if the local file server is started without --bind 127.0.0.1 or is exposed on a network.
+
+False positives
+- 2 (SR-06 and SR-07).
+- Bandit's four B311 rows are one false positive.
+- Changing lives or the level in the local browser is normal client-side behavior and is not an additional finding.
+
+Hardening recommendations, not counted above
+- 3 (SR-02, SR-04, SR-05).
+
+Security areas with no vulnerability
+Input validation, XSS, injection, file and path access on this computer, secrets, sessions and cookies, authorization, known vulnerable dependencies, game-state cheating against a server, and error messages leaking secrets.
+
+The five most important issues to address
+1. SR-01. Add an integrity check for pythons.js, and plan to vendor the runtime files if the later interpreter downloads must be covered too.
+2. SR-02. Do not expect the current Content Security Policy to replace that integrity check.
+3. SR-03. Keep the file server on 127.0.0.1. Do not use python -m http.server as a public host.
+4. SR-04. Pin pygame==2.6.1 and pygbag==0.9.3 when you want future installs to match this review.
+5. SR-05 and SR-06. Leave the unused template helpers uncalled, and reapply any hand edits to index.html after every Pygbag build because the build overwrites that file.

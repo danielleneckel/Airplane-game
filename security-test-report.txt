@@ -1,0 +1,62 @@
+Airplane Game security test report
+Date: 2026-11-19
+Command: SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python -m pytest security_tests -v --tb=line
+Runner: pytest 9.2.0, Python 3.12.1
+Result: 26 collected, 26 passed, 0 failed, 0.11 seconds
+No test files or game files were changed for this report.
+
+Test | What it checks | Passed/Failed | Result
+test_valid_level_indexes_build_the_three_levels_in_order | Valid level numbers 0, 1, and 2 build the three levels in order | Passed | Names are Above the Clouds, Sunset Flight, and The Storm
+test_missing_level_index_is_rejected | A missing level argument raises TypeError and the message has no home-folder path | Passed | TypeError, no Users path
+test_empty_and_text_level_indexes_are_rejected | Empty text, the text "1", and None are rejected as a level number | Passed | TypeError for each, no Users path
+test_negative_level_index_is_not_read_from_the_player | A negative index is not read from the player; the loop starts at 0 | Passed | Source starts at 0 and adds 1; build_level(-1) is only Python's last-item behavior
+test_huge_level_index_raises_without_a_file_path | An extremely large level number raises IndexError without a file path | Passed | Message is "list index out of range"
+test_player_coordinates_are_clamped_to_the_screen | Extremely large and negative coordinates are pulled back onto the screen | Passed | Left and right edges clamp; a very high plane is stopped at the top; a very low plane is marked as fallen
+test_unexpected_keyboard_object_does_not_reveal_a_path | An unexpected keyboard value (None) raises TypeError without a file path | Passed | TypeError, no Users path
+test_there_is_no_score_to_change | The game files have no score that a player can set | Passed | No score text or score attribute in main.py, player.py, or settings.py
+test_level_progression_starts_at_zero_and_moves_one_level_at_a_time | Level starts at 0 and increases by one only next to the goal test | Passed | Those statements appear once in main.py, after colliderect
+test_a_player_at_the_start_has_not_reached_the_goal | The starting airplane on every level does not already touch the goal | Passed | No overlap on levels 0, 1, or 2
+test_standing_on_the_goal_is_what_the_game_treats_as_progress | Overlapping the goal is the progress signal, and won is set in one place | Passed | A plane placed on the goal overlaps it; won = True appears once
+test_lives_start_at_three_and_the_loop_stops_at_zero | Lives start at 3 and the source stops at 0 | Passed | STARTING_LIVES is 3; the source subtracts one and sets game_over at 0
+test_the_life_rule_does_not_keep_going_below_zero | Repeating the written life rule does not go below 0 | Passed | The copy of the rule ends at 0. It does not run main()
+test_wrong_platform_data_raises_without_sensitive_text | Invalid platform text raises ValueError without a password, token, or path | Passed | ValueError, none of those words
+test_invalid_player_position_raises_a_plain_type_error | A text position updated with a keyboard raises TypeError without a path | Passed | TypeError, no Users path
+test_hazard_check_rejects_a_missing_player_without_a_path | A missing player in the hazard check raises AttributeError without a path | Passed | AttributeError, no Users path
+test_rain_update_rejects_a_drop_that_is_not_a_list | A raindrop that is not a list raises TypeError without a path | Passed | TypeError, no Users path
+test_level_names_are_not_written_into_the_html_page | Level names are not inserted into index.html and contain no HTML brackets | Passed | Names are absent from the page
+test_page_does_not_use_document_write_or_eval | The generated page does not call document.write or eval | Passed | Neither call is present
+test_innerhtml_helper_is_not_called_by_the_game | The page's innerHTML helper is not used by the Python game | Passed | innerHTML is only in the template; info_online is defined once and not called by the game
+test_displayed_game_text_is_passed_to_font_render | Lives are drawn with Pygame font rendering, not innerHTML | Passed | The lives string goes to a font render call
+test_debug_panel_starts_hidden_and_is_not_called_on_load | The debug panel is hidden and debug() is not run on load | Passed | The show-debug call appears only inside debug()
+test_hidden_frame_does_not_request_camera_microphone_or_location | The hidden frame allow list is only autoplay and fullscreen | Passed | camera, microphone, and geolocation are absent
+test_page_has_a_content_security_policy | index.html contains a Content Security Policy tag | Passed | The meta tag is present. The test does not judge how strict the policy is
+test_project_files_do_not_contain_secrets_or_this_computers_home_folder | Game, requirements, pygbag.ini, and index.html have no key, private key, password assignment, or /users/ path | Passed | None of those strings were found
+test_requirements_list_only_the_game_packages | requirements.txt lists pygame and pygbag and does not list Flask or Django | Passed | Only the game packages are named
+
+Coverage of the assignment requirements
+
+Covered
+- Valid input: level indexes 0, 1, and 2.
+- Missing input: build_level() with no argument.
+- Empty input: an empty string passed as a level index.
+- Incorrect type: text, None, a text airplane position, a bad raindrop, and bad platform values.
+- Negative values: a negative level index is documented, and negative airplane coordinates are clamped.
+- Extremely large values: level index 1000000000, and airplane coordinates of one billion and of ten times the screen height.
+- Unexpected values: None as the keyboard, None as the player in the hazard check.
+- Level progression: source starts at 0, increases by one beside the goal test, and the airplane does not start on the goal.
+- Scores: the three game files have no score.
+- Lives: the constant is 3 and the source stops at 0. The below-zero check repeats that rule inside the test; it does not run the game loop.
+- Win condition: overlapping the goal is the progress signal, and won = True appears once. The running loop is not executed.
+- Invalid input and error handling: the four error tests, plus the rejected level values.
+- Sensitive information: exception text and the listed project files are checked for a home path, a password assignment, an API key, and a private key.
+- Browser output: level names stay out of the HTML, document.write and eval are absent, and lives go through font rendering.
+- Production configuration: the debug panel starts hidden, the frame does not request the camera, microphone, or location, a Content Security Policy tag exists, and requirements.txt does not add a web framework.
+
+Not fully covered
+- The game window loop in main() is never started. No test plays a frame, presses Space or R, or proves the running game survives bad keyboard input.
+- Lives and the win flag are checked by reading main.py and by copying the life rule into the test. A hit, a negative life count, and a win are not produced by calling the loop.
+- Empty keyboard input, meaning no key held down, is not given to Player.update as a normal case.
+- The browser tests read index.html. They do not open the page in a browser.
+- The configuration tests do not check the remote pythons.js integrity attribute, and they do not check that the documented server command binds to 127.0.0.1. They only check that a Content Security Policy tag exists, not whether that policy is strict.
+
+No test failed. The gaps above are missing checks, not failures.
